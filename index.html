@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photo Sharing Gallery</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <!-- AWS SDK -->
+  <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1048.0.min.js"></script>
+  <!-- Custom styles -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<!--
+  This is the main entry point for the Photo Sharing application.
+  The entire UI is managed by a single Alpine.js component defined in `js/app.js`.
+-->
+<body>
+    <!-- 
+    This is the root element for our Alpine.js application.
+    `x-data="app"` initializes the component, making all its data and methods
+    available to child elements.
+  -->
+  <div x-data="app" class="container mx-auto px-6 py-10 max-w-5xl">
+        <!-- 
+      AUTHENTICATION SECTION
+      This block is only visible when the user is NOT authenticated (`!isAuthenticated`).
+      It contains the login form and buttons to sign in or register via Cognito.
+    -->
+    <div x-show="!isAuthenticated" class="max-w-md mx-auto card p-8 mb-12 shadow-lg border border-gray-100 rounded-2xl">
+      <!-- Logo/Branding -->      
+      <div class="flex justify-center mb-8">
+        <div class="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+        </div>
+      </div>
+
+      <h2 class="apple-heading-1 text-center mb-3">PhotoFlow Gallery</h2>
+      <p class="text-center apple-text-secondary mb-10">Sign in to access your photo collection</p>
+      
+      <!-- Cognito Authentication Buttons -->
+      <div class="flex flex-col space-y-4">
+        <button @click="redirectToLogin()" class="apple-button py-3.5 flex items-center justify-center transition-all duration-300 hover:shadow-md">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          Sign in with Cognito
+        </button>
+        
+        <div class="relative my-4">
+          <div class="absolute inset-0 flex items-center">
+            <div class="w-full border-t border-gray-200"></div>
+          </div>
+          <div class="relative flex justify-center text-sm">
+            <span class="px-4 bg-white text-gray-500">or</span>
+          </div>
+        </div>
+        
+        <button @click="redirectToRegister()" class="apple-button-secondary py-3.5 flex items-center justify-center transition-all duration-300">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="8.5" cy="7" r="4"></circle>
+            <line x1="20" y1="8" x2="20" y2="14"></line>
+            <line x1="23" y1="11" x2="17" y2="11"></line>
+          </svg>
+          Create new account
+        </button>
+      </div>
+      
+      <!-- Authentication Status Indicator -->
+      <div class="flex items-center justify-center mt-8">
+        <div x-show="authLoading" class="flex items-center text-sm text-gray-500">
+          <svg class="animate-spin h-4 w-4 mr-2 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Authenticating...
+        </div>
+      </div>
+    
+    </div>
+
+        <!-- 
+      MAIN APPLICATION VIEW
+      This block is shown only when the user IS authenticated (`isAuthenticated`).
+      It contains the main application interface, including the header, upload form, and photo gallery.
+    -->
+    <div x-show="isAuthenticated" class="space-y-12">
+            <!-- 
+        HEADER
+        Displays the application title, a welcome message with the username,
+        and a sign-out button.
+      -->
+      <div class="flex justify-between items-center border-b border-gray-200 pb-4">
+        <h1 class="apple-heading-1 flex items-center text-[#0066CC]">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mr-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          PhotoFlow
+        </h1>
+        <div class="flex items-center space-x-5">
+          <span x-text="'Hello, ' + username" class="apple-text-secondary hidden md:inline-block"></span>
+          <button @click="logout" class="apple-button-secondary flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Sign Out
+          </button>
+        </div>
+      </div>
+
+            <!-- 
+        UPLOAD SECTION
+        Contains the form for selecting and uploading a new photo.
+        It handles various states like idle, uploading, and processing, and shows a progress bar.
+      -->
+      <div class="card p-7">
+        <div class="flex items-center mb-5">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-[#0066CC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <h2 class="apple-heading-2">Add New Photo</h2>
+        </div>
+        <div class="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
+          <div class="flex-grow">
+            <input type="file" 
+                  @change="handleFileSelect" 
+                  class="block w-full text-sm"
+                  accept="image/*">
+          </div>
+          <button 
+            @click="uploadImage" 
+            :disabled="!selectedFile || isUploading"
+            :class="{'opacity-50 cursor-not-allowed': !selectedFile || isUploading}"
+            class="apple-button flex items-center justify-center min-w-[120px]">
+            <svg x-show="isUploading" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span x-text="!isUploading ? 'Upload' : (processingStatus === 'processing' ? 'Processing...' : 'Uploading...')"></span>
+          </button>
+        </div>
+        
+        <!-- Upload/Processing progress bar -->
+        <div x-show="uploadProgress > 0 && isUploading" class="mt-6">
+          <div class="apple-progress-bar">
+            <div class="apple-progress-bar-fill transition-all duration-300" :style="`width: ${uploadProgress}%`"></div>
+          </div>
+          <div class="flex items-center justify-between mt-2">
+            <p class="text-sm" :class="processingStatus === 'processing' ? 'text-[#FF9500]' : 'text-[#0066CC]'" x-text="processingStatus === 'processing' ? `Lambda processing: ${uploadProgress}%` : `Upload progress: ${uploadProgress}%`"></p>
+            <span x-show="processingStatus === 'processing'" class="text-xs font-medium text-[#FF9500] flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+              </svg>
+              Please wait ~1 minute
+            </span>
+          </div>
+        </div>
+      </div>
+
+            <!-- 
+        GALLERY SECTION
+        This is where the user's photos are displayed.
+        It handles and displays different states:
+        - `loading`: Shows a spinner while photos are being fetched.
+        - `error`: Shows an error message if the fetch fails.
+        - `empty`: Shows a message when the user has no photos.
+        - `default`: Shows the grid of photo thumbnails.
+      -->
+      <div class="card p-7">
+        <div class="flex items-center justify-between mb-6">
+          <div class="flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2 text-[#0066CC]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+            <h2 class="apple-heading-2">Your Photos</h2>
+          </div>
+          <span class="text-sm apple-text-secondary" x-text="photos.length + ' photos'"></span>
+        </div>
+        
+        <!-- Loading state -->
+        <div x-show="loading" class="flex flex-col justify-center items-center py-16">
+          <svg class="animate-spin h-10 w-10 text-[#0066CC] mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p class="text-sm apple-text-secondary">Loading your photos...</p>
+        </div>
+        
+        <!-- Error state -->
+        <div x-show="error && !loading" class="py-16 text-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-[#FF3B30] mx-auto mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <p class="text-[#1D1D1F] font-medium mb-4" x-text="error"></p>
+          <button @click="fetchPhotos" class="apple-button inline-flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="1 4 1 10 7 10"></polyline>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+            </svg>
+            Try Again
+          </button>
+        </div>
+        
+        <!-- Empty state -->
+        <div x-show="photos.length === 0 && !loading && !error" class="py-16 text-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-[#86868B] mx-auto mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <polyline points="21 15 16 10 5 21"></polyline>
+          </svg>
+          <p class="text-[#86868B] mb-4">No photos available yet.</p>
+          <p class="text-sm text-[#86868B]">Get started by uploading your first photo above.</p>
+        </div>
+        
+        <!-- Gallery grid -->
+        <div x-show="photos.length > 0 && !loading" class="photo-grid">
+          <template x-for="(photo, index) in photos" :key="index">
+            <div class="relative cursor-pointer"
+                 @click="openPhotoModal(photo)">
+              <img :src="photo.ThumbnailURL.S" 
+                   :alt="'Photo ' + (index + 1)" 
+                   class="photo-thumbnail w-full"
+                   @error="handleImageError($event, index)">
+              <div class="absolute inset-0 flex items-end p-2 opacity-0 hover:opacity-100 transition-opacity bg-gradient-to-t from-black/40 to-transparent">
+                <span class="text-white text-xs font-medium">View</span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
+    
+        <!-- 
+      PHOTO MODAL
+      A full-screen overlay to display a selected photo in high resolution.
+      It is controlled by the `showModal` state and uses Alpine.js transitions for smooth animations.
+      The modal also has its own loading state for the full-size image.
+    -->
+    <div x-show="showModal" 
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         @click.self="closePhotoModal"
+         class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+      
+      <div class="relative max-w-5xl w-full max-h-[90vh] flex flex-col" 
+           @click.stop>
+        <!-- Loading state -->
+        <div x-show="modalLoading" class="flex flex-col items-center justify-center apple-modal p-10">
+          <svg class="animate-spin h-10 w-10 text-[#0066CC]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p class="mt-3 apple-text-secondary">Loading full image...</p>
+        </div>
+        
+        <!-- Image container -->
+        <div x-show="!modalLoading" class="apple-modal">
+          <div class="relative">
+            <img :src="selectedPhoto?.OriginalImageURL?.S" 
+                class="apple-modal-image mx-auto"
+                @load="modalLoading = false">
+            
+            <!-- Close button -->
+            <button @click="closePhotoModal" class="absolute top-4 right-4 bg-black/20 text-white rounded-full p-2.5 backdrop-blur-sm hover:bg-black/30 transition-colors">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+    <!-- 
+    SCRIPT LOADING ORDER
+    The order of these scripts is critical for the application to function correctly.
+    1. `env-loader.js`: Fetches and parses the .env file first.
+    2. `config.js`: Uses the loaded environment variables to set up the application configuration.
+    3. `auth.js`: Uses the configuration to set up AWS Cognito authentication.
+    4. `app.js`: Initializes the main Alpine.js component, which relies on all the above scripts.
+  -->
+  <!-- Environment Variable Loader -->
+  <script src="js/env-loader.js"></script>
+  <!-- Configuration and Environment Variables -->
+  <script src="js/config.js"></script>
+  <!-- AWS Cognito Auth Logic -->
+  <script src="js/auth.js"></script>
+  <!-- App Logic -->
+  <script src="js/app.js"></script>
+</body>
+</html>
