@@ -39,7 +39,7 @@ const CONFIG = {
   // The domain for the Cognito Hosted UI
   cognito_domain: getEnv("COGNITO_DOMAIN", "us-east-1io9ctbusd"),
   // The URI to redirect to after successful authentication
-  redirect_uri: getEnv("REDIRECT_URI", "https://d84l1y8p4kdic.cloudfront.net"),
+  redirect_uri: getEnv("REDIRECT_URI", "https://dnnso4h1b742i.cloudfront.net/"),
   // API endpoints for backend services
   api: {
     // Endpoint for fetching photo metadata
@@ -59,3 +59,5 @@ const CONFIG = {
 // This makes it easily accessible from other scripts (e.g., auth.js, app.js)
 // without needing to import it, which is convenient for this static project setup.
 window.AppConfig = CONFIG;
+
+console.log("Configuration initialized:", window.AppConfig);

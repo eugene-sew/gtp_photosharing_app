@@ -30,6 +30,13 @@
       It contains the login form and buttons to sign in or register via Cognito.
     -->
     <div x-show="!isAuthenticated" class="max-w-md mx-auto card p-8 mb-12 shadow-lg border border-gray-100 rounded-2xl">
+      <!-- Authentication Loading Indicator -->
+      <div x-show="authLoading" class="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center rounded-2xl z-10">
+        <div class="flex flex-col items-center">
+          <div class="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+          <p class="text-blue-600 font-medium">Authenticating...</p>
+        </div>
+      </div>
       <!-- Logo/Branding -->      
       <div class="flex justify-center mb-8">
         <div class="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg">
@@ -140,34 +147,57 @@
                   accept="image/*">
           </div>
           <button 
-            @click="uploadImage" 
-            :disabled="!selectedFile || isUploading"
-            :class="{'opacity-50 cursor-not-allowed': !selectedFile || isUploading}"
+            @click="uploadFile" 
+            :disabled="!fileToUpload || uploading"
+            :class="{'opacity-50 cursor-not-allowed': !fileToUpload || uploading}"
             class="apple-button flex items-center justify-center min-w-[120px]">
-            <svg x-show="isUploading" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <svg x-show="uploading" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <span x-text="!isUploading ? 'Upload' : (processingStatus === 'processing' ? 'Processing...' : 'Uploading...')"></span>
+            <span x-text="!uploading ? 'Upload' : 'Uploading...'"></span>
           </button>
         </div>
         
-        <!-- Upload/Processing progress bar -->
-        <div x-show="uploadProgress > 0 && isUploading" class="mt-6">
+        <!-- Upload progress bar -->
+        <div x-show="uploadProgress > 0 && uploading" class="mt-6">
           <div class="apple-progress-bar">
             <div class="apple-progress-bar-fill transition-all duration-300" :style="`width: ${uploadProgress}%`"></div>
           </div>
           <div class="flex items-center justify-between mt-2">
-            <p class="text-sm" :class="processingStatus === 'processing' ? 'text-[#FF9500]' : 'text-[#0066CC]'" x-text="processingStatus === 'processing' ? `Lambda processing: ${uploadProgress}%` : `Upload progress: ${uploadProgress}%`"></p>
-            <span x-show="processingStatus === 'processing'" class="text-xs font-medium text-[#FF9500] flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="12" y1="8" x2="12" y2="12"></line>
-                <line x1="12" y1="16" x2="12.01" y2="16"></line>
-              </svg>
-              Please wait ~1 minute
-            </span>
+            <p class="text-sm text-[#0066CC]" x-text="`Upload progress: ${uploadProgress}%`"></p>
           </div>
+        </div>
+        
+        <!-- Image processing progress bar -->
+        <div x-show="processingImage" class="mt-6">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-sm font-medium text-[#FF9500]">
+              <svg xmlns="http://www.w3.org/2000/svg" class="inline-block h-4 w-4 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 10h-4V6"></path>
+                <circle cx="12" cy="12" r="10"></circle>
+              </svg>
+              <span x-text="processingMessage"></span>
+            </p>
+          </div>
+          <div class="apple-progress-bar">
+            <div class="apple-progress-bar-fill bg-[#FF9500] transition-all duration-300" :style="`width: ${processingProgress}%`"></div>
+          </div>
+          <p class="text-xs text-[#86868B] mt-2">
+            The app will automatically refresh when your image is ready
+          </p>
+        </div>
+        
+        <!-- Success message after upload/processing -->  
+        <div x-show="uploadSuccess && !uploading && !processingImage" 
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0 transform -translate-y-2"
+             x-transition:enter-end="opacity-100 transform translate-y-0"
+             class="mt-4 p-3 bg-[#34C759]/10 border border-[#34C759]/20 rounded-md flex items-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-[#34C759] mr-2" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+          </svg>
+          <span class="text-sm text-[#1D1D1F]">Photo uploaded and processed successfully!</span>
         </div>
       </div>
 
@@ -232,10 +262,10 @@
         
         <!-- Gallery grid -->
         <div x-show="photos.length > 0 && !loading" class="photo-grid">
-          <template x-for="(photo, index) in photos" :key="index">
+          <template x-for="(photo, index) in photos" :key="photo.id || index">
             <div class="relative cursor-pointer"
                  @click="openPhotoModal(photo)">
-              <img :src="photo.ThumbnailURL.S" 
+              <img :src="photo.thumbnailUrl" 
                    :alt="'Photo ' + (index + 1)" 
                    class="photo-thumbnail w-full"
                    @error="handleImageError($event, index)">
@@ -278,7 +308,7 @@
         <!-- Image container -->
         <div x-show="!modalLoading" class="apple-modal">
           <div class="relative">
-            <img :src="selectedPhoto?.OriginalImageURL?.S" 
+            <img :src="selectedPhoto?.url" 
                 class="apple-modal-image mx-auto"
                 @load="modalLoading = false">
             

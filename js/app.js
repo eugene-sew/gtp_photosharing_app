@@ -4,7 +4,14 @@
  * fetches photo data from the backend, and manages the photo upload process.
  */
 
-document.addEventListener('alpine:init', () => {
+/**
+ * Initializes Alpine.js with our application logic.
+ * This sets up the reactive data and methods for our UI.
+ * This is executed before the DOM Content Loaded event.
+ */
+document.addEventListener("alpine:init", () => {
+  // Log that Alpine is initializing - helps debug authentication flow
+  console.log('Alpine.js initializing, current auth status:', window.authStatus);
   /**
    * The main Alpine.js data component for the application.
    * This object holds all the reactive state and methods that drive the UI.
@@ -71,6 +78,24 @@ document.addEventListener('alpine:init', () => {
     uploadSuccess: false,
 
     /**
+     * Indicates whether an image is currently being processed after upload.
+     * @type {boolean}
+     */
+    processingImage: false,
+    
+    /**
+     * The progress percentage of image processing (0-100).
+     * @type {number}
+     */
+    processingProgress: 0,
+    
+    /**
+     * Processing status message for user feedback.
+     * @type {string}
+     */
+    processingMessage: '',
+
+    /**
      * Flag to control the visibility of the photo modal.
      * @type {boolean}
      */
@@ -93,22 +118,55 @@ document.addEventListener('alpine:init', () => {
      * It sets up listeners and performs initial data fetching.
      */
     init() {
+      console.log('Initializing Alpine.js app component with auth status:', window.authStatus);
+      
+      // Wait for the window to load, and then immediately check if we have an authorization code in the URL
+      window.addEventListener("load", () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const authCode = urlParams.get("code");
+        
+        if (authCode) {
+          console.log('Found auth code in URL, app.js detected redirect from Cognito');
+          
+          // Force auth status check when we detect a code parameter
+          window.authStatus.loading = true;
+          
+          // Allow UI to update with loading state first before checking auth
+          setTimeout(() => {
+            console.log('Triggering auth check from app.js...');
+            window.checkAuthFromHash && window.checkAuthFromHash();
+          }, 200);
+        }
+      });
+
       // Set up a listener to react to changes in the global authentication state.
       // This ensures the UI updates automatically on login/logout and during authentication.
       window.addEventListener('auth:statusChanged', () => {
+        console.log('Auth status changed event received, new status:', window.authStatus);
+        
+        // Update component state from global auth status
         this.isAuthenticated = window.authStatus.isAuthenticated;
         this.username = window.authStatus.username;
         this.authLoading = window.authStatus.loading;
         
+        // Handle state changes based on authentication status
         if (this.isAuthenticated) {
+          console.log('User is authenticated, fetching photos...');
           this.fetchPhotos();
         } else if (!this.authLoading) {
+          console.log('User is not authenticated and not in loading state, clearing photos');
           this.photos = []; // Clear photos on logout, but not during auth process
         }
       });
 
+      // Always ensure our component state is in sync with the global auth state
+      this.isAuthenticated = window.authStatus.isAuthenticated;
+      this.username = window.authStatus.username;
+      this.authLoading = window.authStatus.loading;
+      
       // If the user is already authenticated on page load, fetch their photos.
       if (this.isAuthenticated) {
+        console.log('User is authenticated on init, fetching photos...');
         this.fetchPhotos();
       }
     },
@@ -124,22 +182,55 @@ document.addEventListener('alpine:init', () => {
       this.error = null;
       try {
         // Fetch photo data from the API endpoint defined in the global configuration.
-        const response = await fetch(window.AppConfig.api.photos);
+        const photosEndpoint = window.AppConfig.api.photos_endpoint;
+        console.log('Fetching photos from endpoint:', photosEndpoint);
+        const response = await fetch(photosEndpoint);
         if (!response.ok) {
           throw new Error('Network response was not ok');
         }
-        const str = await response.text();
-        // The API returns XML, so we need to parse it to extract the photo data.
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(str, 'application/xml');
-        const contents = xmlDoc.getElementsByTagName('Contents');
-        // Convert the XML nodes into a more friendly array of JavaScript objects.
-        this.photos = Array.from(contents).map(content => ({
-          key: content.getElementsByTagName('Key')[0].textContent,
-          url: `${window.AppConfig.api.photos}/${content.getElementsByTagName('Key')[0].textContent}`,
-          lastModified: content.getElementsByTagName('LastModified')[0].textContent,
-          size: content.getElementsByTagName('Size')[0].textContent
-        }));
+        
+        // The API returns JSON data with photo information
+        const data = await response.json();
+        console.log('Photo data received:', data);
+        
+        // Check if the data has the expected structure
+        if (data && data.Items && Array.isArray(data.Items)) {
+          // Convert the API response into our photo objects array
+          this.photos = data.Items.map(item => {
+            const thumbnailURL = item.ThumbnailURL ? item.ThumbnailURL.S : '';
+            const originalURL = item.OriginalImageURL ? item.OriginalImageURL.S : '';
+            const photoId = item.ImageMetadataPK ? item.ImageMetadataPK.S : '';
+            
+            // Extract metadata if available
+            let metadata = {};
+            if (item.Metadata && item.Metadata.M) {
+              if (item.Metadata.M.Format && item.Metadata.M.Format.S) {
+                metadata.format = item.Metadata.M.Format.S;
+              }
+              if (item.Metadata.M.Mode && item.Metadata.M.Mode.S) {
+                metadata.mode = item.Metadata.M.Mode.S;
+              }
+              if (item.Metadata.M.Size && item.Metadata.M.Size.L && 
+                  item.Metadata.M.Size.L[0] && item.Metadata.M.Size.L[1]) {
+                metadata.width = parseInt(item.Metadata.M.Size.L[0].N, 10);
+                metadata.height = parseInt(item.Metadata.M.Size.L[1].N, 10);
+              }
+            }
+            
+            return {
+              id: photoId,
+              thumbnailUrl: thumbnailURL,
+              url: originalURL,
+              metadata: metadata
+            };
+          });
+          
+          console.log('Processed photos:', this.photos);
+        } else {
+          console.error('Unexpected API response format:', data);
+          this.error = 'Unexpected API response format';
+          this.photos = [];
+        }
       } catch (err) {
         this.error = `Failed to fetch photos: ${err.message}`;
         console.error(err);
@@ -186,7 +277,9 @@ document.addEventListener('alpine:init', () => {
 
         this.uploadSuccess = true;
         this.fileToUpload = null; // Reset file input
-        await this.fetchPhotos(); // Refresh the gallery
+        
+        // Start image processing monitoring
+        this.startImageProcessingMonitor()
       } catch (err) {
         this.uploadError = `Upload failed: ${err.message}`;
         console.error(err);
@@ -201,22 +294,20 @@ document.addEventListener('alpine:init', () => {
      * @returns {Promise<string>} A promise that resolves with the pre-signed URL.
      */
     async getPresignedUrl(file) {
-      const params = new URLSearchParams({ fileName: file.name, contentType: file.type });
-      const url = `${window.AppConfig.api.upload}?${params.toString()}`;
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          // If using an authorizer like Cognito on your API Gateway, add the token here
-          // 'Authorization': `Bearer ${window.authStatus.token}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error('Could not get a pre-signed URL.');
-      }
-      const data = await response.json();
-      return data.uploadURL;
+      console.log('Getting presigned URL for file:', file.name);
+      const timestamp = Date.now();
+      const fileName = `${timestamp}-${file.name}`;
+      
+      // Use the direct upload endpoint from AppConfig with the filename appended
+      // This will perform a direct PUT upload to the S3 bucket through API Gateway
+      const uploadEndpoint = window.AppConfig.api.upload_endpoint;
+      const url = `${uploadEndpoint}${fileName}`;
+      
+      console.log('Generated upload URL:', url);
+      
+      // In this case, we're directly using the API Gateway endpoint that allows PUT requests
+      // No need to get a presigned URL separately
+      return url;
     },
 
     /**
@@ -229,6 +320,15 @@ document.addEventListener('alpine:init', () => {
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', presignedUrl, true);
+        
+        // Add content type header based on file type
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        
+        // Add authorization header if we have a token
+        if (window.authStatus && window.authStatus.token) {
+          console.log('Adding authorization header for upload');
+          xhr.setRequestHeader('Authorization', `Bearer ${window.authStatus.token}`);
+        }
 
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
@@ -238,16 +338,20 @@ document.addEventListener('alpine:init', () => {
 
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
+            console.log('Upload successful!');
             resolve();
           } else {
-            reject(new Error(`S3 upload failed with status: ${xhr.status} - ${xhr.statusText}`));
+            console.error('Upload failed:', xhr.status, xhr.statusText, xhr.responseText);
+            reject(new Error(`Upload failed with status: ${xhr.status} - ${xhr.statusText}`));
           }
         };
 
-        xhr.onerror = () => {
+        xhr.onerror = (error) => {
+          console.error('Upload network error:', error);
           reject(new Error('A network error occurred during the upload.'));
         };
 
+        console.log('Sending file:', file.name, 'to URL:', presignedUrl);
         xhr.send(file);
       });
     },
@@ -258,7 +362,7 @@ document.addEventListener('alpine:init', () => {
      * Opens the modal to display a selected photo in full size.
      * @param {Object} photo The photo object to display.
      */
-    openModal(photo) {
+    openPhotoModal(photo) {
       this.selectedPhoto = photo;
       this.modalLoading = true;
       this.showModal = true;
@@ -277,7 +381,7 @@ document.addEventListener('alpine:init', () => {
     /**
      * Closes the photo modal and resets its state.
      */
-    closeModal() {
+    closePhotoModal() {
       this.showModal = false;
       setTimeout(() => {
         this.selectedPhoto = null;
@@ -285,7 +389,70 @@ document.addEventListener('alpine:init', () => {
       }, 300); // Should match the modal's closing transition duration
     },
 
+    /**
+     * Monitors image processing and automatically refreshes the gallery.
+     * AWS Lambda processing typically takes about a minute to complete.
+     */
+    startImageProcessingMonitor() {
+      // Set a processing state to show appropriate UI
+      this.processingImage = true;
+      this.processingProgress = 0;
+      this.processingMessage = 'Processing image... This typically takes about 60 seconds';
+      
+      // Store the initial count of photos
+      const initialPhotoCount = this.photos.length;
+      
+      // Create a counter for our progress bar
+      let elapsed = 0;
+      const totalExpectedTime = 60; // 60 seconds expected processing time
+      
+      // Check for new photos every 10 seconds
+      const checkInterval = setInterval(async () => {
+        elapsed += 10;
+        
+        // Update progress percentage (capped at 95% until complete)
+        this.processingProgress = Math.min(Math.round((elapsed / totalExpectedTime) * 100), 95);
+        
+        // Attempt to fetch photos
+        await this.fetchPhotos();
+        
+        // If we have a new photo or the expected time has elapsed
+        if (this.photos.length > initialPhotoCount || elapsed >= totalExpectedTime + 10) {
+          // Clear the interval
+          clearInterval(checkInterval);
+          
+          // Complete the progress
+          this.processingProgress = 100;
+          this.processingMessage = 'Image processing complete!';
+          
+          // Reset the processing state after showing completion message
+          setTimeout(() => {
+            this.processingImage = false;
+            
+            // Show success message briefly
+            setTimeout(() => {
+              // Reset upload success flag after showing the message for a few seconds
+              this.uploadSuccess = false;
+            }, 5000);
+          }, 2000);
+        }
+      }, 10000); // Check every 10 seconds
+    },
+    
     // --- Utility Methods ---
+    
+    /**
+     * Handles image loading errors by setting a fallback image
+     * @param {Event} event The error event
+     * @param {number} index The photo index
+     */
+    handleImageError(event, index) {
+      console.error(`Image loading failed for photo at index ${index}`);
+      // Set a placeholder image
+      event.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxyZWN0IGZpbGw9IiNFRUVFRUUiIHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIiByeD0iNCIvPjxnIHRyYW5zZm9ybT0idHJhbnNsYXRlKDcwLjU2MiA2OC41NjIpIiBzdHJva2U9IiM5OTkiIHN0cm9rZS13aWR0aD0iMyI+PGNpcmNsZSBjeD0iOS41IiBjeT0iOS41IiByPSI5LjUiLz48cGF0aCBkPSJNMzkuNDM4IDU5LjQzOEw5LjUgOS41Ii8+PGNpcmNsZSBjeD0iMzkuNDM4IiBjeT0iNTkuNDM4IiByPSI5LjUiLz48L2c+PC9nPjwvc3ZnPg==';
+      // Add a CSS class to indicate broken image
+      event.target.classList.add('broken-image');
+    },
 
     /**
      * Formats a file size in bytes into a human-readable string (KB, MB).

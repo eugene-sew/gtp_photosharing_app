@@ -1,14 +1,31 @@
 # Photo Sharing Gallery
 
+**Live Application: [https://dnnso4h1b742i.cloudfront.net/](https://dnnso4h1b742i.cloudfront.net/)**
+
 A responsive photo sharing application built with Alpine.js and TailwindCSS that integrates with AWS Cognito for authentication.
 
 ## Features
 
 - User authentication via AWS Cognito
 - Photo gallery with thumbnail and full-size image viewing
-- Image uploading with progress tracking
+- Image uploading with progress tracking and automatic processing status
+- Automatic gallery refresh after image processing (typically 60 seconds)
 - Responsive design for all device sizes
 - Modal view for full-size images
+
+## Screenshots
+
+### Authentication
+![Authentication Page](/screenshots/auth_page.png)
+*AWS Cognito authentication login screen*
+
+### Photo Gallery
+![Photo Gallery](/screenshots/all_photos.png)
+*Responsive gallery layout showing uploaded images*
+
+### Single Photo View
+![Single Photo View](/screenshots/single_photo.png)
+*Full-size image modal view with clean, minimal UI*
 
 ## API Endpoints
 
